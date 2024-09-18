@@ -6,11 +6,12 @@ from PyQt5.QtGui import QDrag, QPixmap, QImage
 from PyPDF2 import PdfReader, PdfWriter
 
 class PDFPage(QWidget):
-    def __init__(self, page_number, pixmap, pdf_path, parent=None):
+    def __init__(self, page_number, pixmap, pdf_path, is_copy=False, parent=None):
         super().__init__(parent)
         self.page_number = page_number
         self.pdf_path = pdf_path
         self.pixmap = pixmap
+        self.is_copy = is_copy
 
         layout = QVBoxLayout(self)
         self.checkbox = QCheckBox()
@@ -30,7 +31,7 @@ class PDFPage(QWidget):
             return
 
         mime_data = QMimeData()
-        mime_data.setText(f"{self.pdf_path}|{self.page_number}")
+        mime_data.setText(f"{self.pdf_path}|{self.page_number}|{int(self.is_copy)}")
 
         drag = QDrag(self)
         drag.setMimeData(mime_data)
@@ -58,18 +59,22 @@ class PDFColumn(QWidget):
 
         button_layout = QHBoxLayout()
         save_button = QPushButton("Enregistrer cette colonne")
+        save_button.setStyleSheet("background-color: green; color: white;")
         save_button.clicked.connect(self.save_column)
         button_layout.addWidget(save_button)
 
         delete_button = QPushButton("Supprimer la sélection")
+        delete_button.setStyleSheet("background-color: red; color: white;")
         delete_button.clicked.connect(self.delete_selected_pages)
         button_layout.addWidget(delete_button)
 
         select_all_button = QPushButton("Sélectionner tout")
+        select_all_button.setStyleSheet("background-color: yellow; color: black;")
         select_all_button.clicked.connect(self.select_all_pages)
         button_layout.addWidget(select_all_button)
 
         deselect_all_button = QPushButton("Désélectionner tout")
+        deselect_all_button.setStyleSheet("background-color: orange; color: white;")
         deselect_all_button.clicked.connect(self.deselect_all_pages)
         button_layout.addWidget(deselect_all_button)
 
@@ -96,15 +101,16 @@ class PDFColumn(QWidget):
         mime_data = e.mimeData()
 
         if mime_data.hasText():
-            pdf_path, page_number = mime_data.text().split('|')
+            pdf_path, page_number, is_copy = mime_data.text().split('|')
             page_number = int(page_number)
+            is_copy = bool(int(is_copy))
 
-            if pdf_path == self.pdf_path:
-                self.reorder_page(page_number, pos)
+            if pdf_path == self.pdf_path and not is_copy:
+                self.move_page(page_number, pos)
             else:
                 self.copy_page(pdf_path, page_number, pos)
 
-    def reorder_page(self, page_number, pos):
+    def move_page(self, page_number, pos):
         moving_page = None
         for i, page in enumerate(self.pages):
             if page.page_number == page_number:
@@ -129,7 +135,7 @@ class PDFColumn(QWidget):
         pix = page.get_pixmap(matrix=fitz.Matrix(1, 1))
         qimg = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(qimg)
-        new_page = PDFPage(page_number, pixmap, pdf_path)
+        new_page = PDFPage(page_number, pixmap, pdf_path, is_copy=True)
 
         for i, page in enumerate(self.pages):
             if page.geometry().contains(pos):
@@ -182,12 +188,15 @@ class MainWindow(QMainWindow):
         main_layout.addLayout(control_layout)
 
         load_pdf_button = QPushButton("Charger PDF")
+        load_pdf_button.setStyleSheet("background-color: blue; color: white;")
         load_pdf_button.clicked.connect(self.load_pdf)
         control_layout.addWidget(load_pdf_button)
 
-        save_all_button = QPushButton("Enregistrer PDF Fusionné Global")
-        save_all_button.clicked.connect(self.save_merged_pdf)
-        control_layout.addWidget(save_all_button)
+        self.save_all_button = QPushButton("Enregistrer PDF Fusionné Global")
+        self.save_all_button.setStyleSheet("background-color: green; color: white;")
+        self.save_all_button.clicked.connect(self.save_merged_pdf)
+        self.save_all_button.setEnabled(False)  # Disable by default
+        control_layout.addWidget(self.save_all_button)
 
         self.pdf_layout = QHBoxLayout()
         main_layout.addLayout(self.pdf_layout)
@@ -200,6 +209,10 @@ class MainWindow(QMainWindow):
             pdf_column = PDFColumn(pdf_path)
             self.pdf_columns.append(pdf_column)
             self.pdf_layout.addWidget(pdf_column)
+
+        # Enable the save all button if at least 2 PDFs are loaded
+        if len(self.pdf_columns) >= 2:
+            self.save_all_button.setEnabled(True)
 
     def save_merged_pdf(self):
         output_path, _ = QFileDialog.getSaveFileName(self, "Enregistrer le PDF fusionné global", "", "PDF Files (*.pdf)")
